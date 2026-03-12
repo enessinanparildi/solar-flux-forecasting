@@ -1,0 +1,35 @@
+# Data
+data/
+
+# Model artifacts (large binaries)
+models/*.trt
+models/*.onnx
+
+# Training checkpoints
+lightning_logs/
+*.ckpt
+
+# Feast registry
+data/feast/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.egg-info/
+dist/
+build/
+
+# Docs (contains personal files)
+docs/
+
+# MLflow
+mlruns/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

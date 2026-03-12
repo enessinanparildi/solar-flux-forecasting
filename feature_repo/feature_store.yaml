@@ -1,0 +1,27 @@
+project: solar_flux
+provider: local
+
+registry: ../data/feast/registry.db
+
+offline_store:
+    type: file                          # local parquet — swap to redshift/bigquery for prod
+
+online_store:
+    type: sqlite
+    path: ../data/feast/online_store.db # swap to dynamodb/redis for prod
+
+entity_key_serialization_version: 2
+
+# --- Production overrides (AWS) ---
+# offline_store:
+#     type: redshift
+#     cluster_id: your-cluster-id
+#     region: us-east-1
+#     database: solar_flux
+#     s3_staging_location: s3://your-bucket/feast/staging
+#
+# online_store:
+#     type: dynamodb
+#     region: us-east-1
+#
+# registry: s3://your-bucket/feast/registry.pb

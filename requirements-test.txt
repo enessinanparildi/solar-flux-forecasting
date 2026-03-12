@@ -1,0 +1,8 @@
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+pandas==2.2.3
+numpy==1.26.4
+statsmodels==0.14.4
+requests
+pytest>=7.0
+pytest-asyncio
