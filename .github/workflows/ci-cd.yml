@@ -10,6 +10,7 @@ env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: solar-flux-tft
   SAGEMAKER_ENDPOINT: solar-flux-tft
+  CANARY_WEIGHT: 10   # % traffic routed to new model on deploy
 
 jobs:
   # ------------------------------------------------------------------
@@ -32,10 +33,25 @@ jobs:
         run: pytest tests/ -v
 
   # ------------------------------------------------------------------
+  # Validate committed model artifacts (CPU-only, no GPU needed)
+  # ------------------------------------------------------------------
+  validate-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate model artifacts
+        run: python scripts/validate_data.py --models-dir models
+
+  # ------------------------------------------------------------------
   # CD — only on pushes to main (not PRs)
   # ------------------------------------------------------------------
   build-and-push:
-    needs: test
+    needs: [test, validate-data]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
@@ -51,6 +67,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Fetch ONNX model from S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_ARTIFACT_BUCKET }}
+        run: |
+          aws s3 cp "s3://$S3_BUCKET/onnx/tft_model.onnx" models/tft_model.onnx
+
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
@@ -64,13 +86,56 @@ jobs:
           IMAGE_URI="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker build -t "$IMAGE_URI" .
           docker push "$IMAGE_URI"
-          # Also tag as latest
           docker tag "$IMAGE_URI" "$REGISTRY/$ECR_REPOSITORY:latest"
           docker push "$REGISTRY/$ECR_REPOSITORY:latest"
           echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
-  deploy:
+      - name: Register model version in MLflow
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          IMAGE_URI: ${{ steps.build.outputs.image_uri }}
+        run: |
+          pip install mlflow
+          python scripts/version_artifacts.py \
+            --tag       "${{ github.sha }}" \
+            --image-uri "$IMAGE_URI"
+
+  # ------------------------------------------------------------------
+  # Model registry check — gate on production endpoint health
+  # ------------------------------------------------------------------
+  check-metrics:
     needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install boto3
+        run: pip install boto3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check production endpoint health
+        run: |
+          python scripts/check_model_metrics.py \
+            --endpoint-name "$SAGEMAKER_ENDPOINT" \
+            --region        "$AWS_REGION"
+
+  # ------------------------------------------------------------------
+  # Deploy — A/B canary: CANARY_WEIGHT% to new, rest stays on current
+  # ------------------------------------------------------------------
+  deploy:
+    needs: check-metrics
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
 
@@ -98,7 +163,8 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           python scripts/deploy_sagemaker.py \
-            --image-uri "$IMAGE_URI" \
-            --endpoint-name "$SAGEMAKER_ENDPOINT" \
-            --role-arn "$SAGEMAKER_ROLE_ARN" \
-            --tag "$IMAGE_TAG"
+            --image-uri      "$IMAGE_URI" \
+            --endpoint-name  "$SAGEMAKER_ENDPOINT" \
+            --role-arn       "$SAGEMAKER_ROLE_ARN" \
+            --tag            "$IMAGE_TAG" \
+            --canary-weight  "$CANARY_WEIGHT"
