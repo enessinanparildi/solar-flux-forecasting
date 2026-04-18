@@ -1,6 +1,6 @@
 # Solar Flux Forecasting with Temporal Fusion Transformer
 
-A production-grade 7-day solar radio flux (F10.7) forecasting system using a **Temporal Fusion Transformer**, served via **TensorRT** + **FastAPI**, and deployable to **AWS SageMaker**.
+A production-grade 7-day solar radio flux (F10.7) forecasting system using a **Temporal Fusion Transformer**, served via **TensorRT** + **RayServe**, and deployable to **AWS SageMaker**.
 
 ---
 
