@@ -1,7 +1,0 @@
-  cd D:\perceptivespace
-  git init
-  git add .
-  git commit -m "Initial commit: TFT solar flux forecasting"
-  git branch -M main
-  git remote add origin https://github.com/enessinanparildi/solar-flux-forecasting.git
-  git push -u origin main
